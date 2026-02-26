@@ -11,6 +11,8 @@ from langchain_core.runnables import RunnablePassthrough
 import streamlit as st
 import tempfile
 import os
+import re
+from openai import OpenAI, AuthenticationError, APIConnectionError, APIStatusError
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -20,6 +22,45 @@ st.write("---")
 
 #OpenAI Key"
 openai_key = st.text_input('OPEN_AI_API_KEY', type='password')
+
+def looks_like_openai_key(key: str) -> bool:
+  key = key.strip()
+  # Accepts current key styles (e.g. sk-..., sk-proj-...).
+  return bool(re.fullmatch(r"sk-[A-Za-z0-9_-]{20,}", key))
+
+def validate_openai_key_live(key: str):
+  try:
+    client = OpenAI(api_key=key, timeout=8.0)
+    client.models.list()
+    return True, ""
+  except AuthenticationError:
+    return False, "Invalid OpenAI API key (authentication failed)."
+  except APIConnectionError:
+    return False, "Could not reach OpenAI. Check your network and try again."
+  except APIStatusError as e:
+    if e.status_code in (401, 403):
+      return False, "OpenAI API key is not authorized for this request."
+    return False, f"OpenAI API error (status {e.status_code})."
+  except Exception:
+    return False, "Unexpected error while validating the API key."
+
+if not openai_key:
+  st.warning("Please enter your OpenAI API key to continue.")
+  st.stop()
+
+if not looks_like_openai_key(openai_key):
+  st.error("Invalid key format. It should start with 'sk-'.")
+  st.stop()
+
+openai_key = openai_key.strip()
+if st.session_state.get("validated_key") != openai_key:
+  with st.spinner("Validating API key..."):
+    is_valid, error_message = validate_openai_key_live(openai_key)
+  if not is_valid:
+    st.error(error_message)
+    st.stop()
+  st.session_state["validated_key"] = openai_key
+  st.success("OpenAI API key verified.")
 
 #file upload
 uploaded_file = st.file_uploader("PDF Upload", type=["pdf"])
@@ -73,7 +114,7 @@ if uploaded_file is not None:
     with st.spinner("Wait for it..."):
       #Retriever
       # question = "아내가 먹고 싶어하는 음식은 무엇이야?"
-      llm = ChatOpenAI(temperature=0)
+      llm = ChatOpenAI(temperature=0, openai_api_key=openai_key)
       retriever_from_llm = MultiQueryRetriever.from_llm(
         retriever=db.as_retriever(), llm=llm
       )
