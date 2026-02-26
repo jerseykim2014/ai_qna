@@ -18,6 +18,9 @@ load_dotenv()
 st.title("ChatPDF")
 st.write("---")
 
+#OpenAI Key"
+openai_key = st.text_input('OPEN_AI_API_KEY', type='password')
+
 #file upload
 uploaded_file = st.file_uploader("PDF Upload", type=["pdf"])
 st.write("---")
@@ -52,6 +55,7 @@ if uploaded_file is not None:
   #Embedding
   embeddings_model = OpenAIEmbeddings(
     model="text-embedding-3-large",
+    openai_api_key=openai_key
     # With the `text-embedding-3` class
     # of models, you can specify the size
     # of the embeddings you want returned.
