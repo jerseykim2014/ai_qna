@@ -20,9 +20,6 @@ load_dotenv()
 st.title("ChatPDF")
 st.write("---")
 
-#OpenAI Key"
-openai_key = st.text_input('OPEN_AI_API_KEY', type='password')
-
 def looks_like_openai_key(key: str) -> bool:
   key = key.strip()
   # Accepts current key styles (e.g. sk-..., sk-proj-...).
@@ -44,26 +41,35 @@ def validate_openai_key_live(key: str):
   except Exception:
     return False, "Unexpected error while validating the API key."
 
-if not openai_key:
-  st.warning("Please enter your OpenAI API key to continue.")
-  st.stop()
+is_key_verified = False
+openai_key = st.session_state.get("validated_key", "")
 
-if not looks_like_openai_key(openai_key):
-  st.error("Invalid key format. It should start with 'sk-'.")
-  st.stop()
-
-openai_key = openai_key.strip()
-if st.session_state.get("validated_key") != openai_key:
-  with st.spinner("Validating API key..."):
-    is_valid, error_message = validate_openai_key_live(openai_key)
-  if not is_valid:
-    st.error(error_message)
-    st.stop()
-  st.session_state["validated_key"] = openai_key
+# OpenAI key input is shown only before successful verification.
+if openai_key:
+  is_key_verified = True
   st.success("OpenAI API key verified.")
+else:
+  openai_key = st.text_input('OPEN_AI_API_KEY', type='password').strip()
+  if not openai_key:
+    st.info("Enter your OpenAI API key to enable upload and 질문하기.")
+  elif not looks_like_openai_key(openai_key):
+    st.error("Invalid key format. It should start with 'sk-'.")
+  else:
+    with st.spinner("Validating API key..."):
+      is_valid, error_message = validate_openai_key_live(openai_key)
+    if not is_valid:
+      st.error(error_message)
+    else:
+      st.session_state["validated_key"] = openai_key
+      is_key_verified = True
+      st.success("OpenAI API key verified.")
 
 #file upload
-uploaded_file = st.file_uploader("PDF Upload", type=["pdf"])
+uploaded_file = st.file_uploader(
+  "PDF Upload",
+  type=["pdf"],
+  disabled=not is_key_verified
+)
 st.write("---")
 
 def pdf_to_document(uploaded_file):
@@ -78,62 +84,70 @@ def pdf_to_document(uploaded_file):
 # loader = PyPDFLoader("luck.pdf")
 # pages = loader.load_and_split()
 
+st.header("PDF에게 질문해 보세요!!")
+question = st.text_input(
+  "질문을 입력하세요",
+  disabled=(not is_key_verified or uploaded_file is None)
+)
+ask_button_disabled = (
+  not is_key_verified or uploaded_file is None or not question.strip()
+)
+ask_clicked = st.button("질문하기", disabled=ask_button_disabled)
+
+if is_key_verified and uploaded_file is None:
+  st.info("Upload a PDF to enable question input.")
+
 #업로드된 파일 처리
-if uploaded_file is not None:
-  pages = pdf_to_document(uploaded_file)
-  #splitter
-  text_splitter = RecursiveCharacterTextSplitter(
-    #set a really small chunk size, just to show.
-    chunk_size=300,
-    chunk_overlap=20,
-    length_function=len,
-    is_separator_regex=False,
-  )
-  texts = text_splitter.split_documents(pages)
-  # print("pages[0] ",pages[0])
-  # print("texts[0] ",texts[0])
+if ask_clicked:
+  with st.spinner("Wait for it..."):
+    pages = pdf_to_document(uploaded_file)
+    #splitter
+    text_splitter = RecursiveCharacterTextSplitter(
+      #set a really small chunk size, just to show.
+      chunk_size=300,
+      chunk_overlap=20,
+      length_function=len,
+      is_separator_regex=False,
+    )
+    texts = text_splitter.split_documents(pages)
+    # print("pages[0] ",pages[0])
+    # print("texts[0] ",texts[0])
 
-  #Embedding
-  embeddings_model = OpenAIEmbeddings(
-    model="text-embedding-3-large",
-    openai_api_key=openai_key
-    # With the `text-embedding-3` class
-    # of models, you can specify the size
-    # of the embeddings you want returned.
-    # dimensions=1024
-  )
+    #Embedding
+    embeddings_model = OpenAIEmbeddings(
+      model="text-embedding-3-large",
+      openai_api_key=openai_key
+      # With the `text-embedding-3` class
+      # of models, you can specify the size
+      # of the embeddings you want returned.
+      # dimensions=1024
+    )
 
-  #Chroma DB
-  db = Chroma.from_documents(texts, embeddings_model)
+    #Chroma DB
+    db = Chroma.from_documents(texts, embeddings_model)
 
-  #User Input
-  st.header("PDF에게 질문해 보세요!!")
-  question = st.text_input("질문을 입력하세요")
+    #Retriever
+    # question = "아내가 먹고 싶어하는 음식은 무엇이야?"
+    llm = ChatOpenAI(temperature=0, openai_api_key=openai_key)
+    retriever_from_llm = MultiQueryRetriever.from_llm(
+      retriever=db.as_retriever(), llm=llm
+    )
+    #Prompt Template
+    # prompt = hub.pull("rlm/rag-prompt")
+    client = Client()
+    prompt = client.pull_prompt("rlm/rag-prompt")
+    #Generate
+    def format_docs(docs):
+      return "\n\n".join(doc.page_content for doc in docs)
+    rag_chain = (
+      {
+        "question": RunnablePassthrough(),
+        "context": retriever_from_llm | format_docs}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
 
-  if st.button("질문하기"):
-    with st.spinner("Wait for it..."):
-      #Retriever
-      # question = "아내가 먹고 싶어하는 음식은 무엇이야?"
-      llm = ChatOpenAI(temperature=0, openai_api_key=openai_key)
-      retriever_from_llm = MultiQueryRetriever.from_llm(
-        retriever=db.as_retriever(), llm=llm
-      )
-      #Prompt Template
-      # prompt = hub.pull("rlm/rag-prompt")
-      client = Client()
-      prompt = client.pull_prompt("rlm/rag-prompt")
-      #Generate
-      def format_docs(docs):
-        return "\n\n".join(doc.page_content for doc in docs)
-      rag_chain = (
-        {
-          "question": RunnablePassthrough(),
-          "context": retriever_from_llm | format_docs}
-          | prompt
-          | llm
-          | StrOutputParser()
-      )
-
-      #Question
-      result = rag_chain.invoke(question)
-      st.write(result)
+    #Question
+    result = rag_chain.invoke(question)
+    st.write(result)
