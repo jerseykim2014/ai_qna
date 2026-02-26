@@ -51,7 +51,7 @@ if openai_key:
 else:
   openai_key = st.text_input('OPEN_AI_API_KEY', type='password').strip()
   if not openai_key:
-    st.info("Enter your OpenAI API key to enable upload and 질문하기.")
+    st.info("Enter your OpenAI API key to proceed further.")
   elif not looks_like_openai_key(openai_key):
     st.error("Invalid key format. It should start with 'sk-'.")
   else:
