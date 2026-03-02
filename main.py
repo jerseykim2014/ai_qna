@@ -12,6 +12,7 @@ import streamlit as st
 import tempfile
 import os
 import re
+from streamlit_extras.buy_me_a_coffee import button
 from openai import OpenAI, AuthenticationError, APIConnectionError, APIStatusError
 from dotenv import load_dotenv
 load_dotenv()
@@ -71,6 +72,9 @@ uploaded_file = st.file_uploader(
   disabled=not is_key_verified
 )
 st.write("---")
+
+#Buy me a coffee
+button(username="{jerseykim}", floating=True, width=221)
 
 def pdf_to_document(uploaded_file):
   temp_dir = tempfile.TemporaryDirectory()
