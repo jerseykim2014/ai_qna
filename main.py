@@ -74,7 +74,7 @@ uploaded_file = st.file_uploader(
 st.write("---")
 
 #Buy me a coffee
-button(username="{jerseykim}", floating=True, width=221)
+button(username="jerseykim", floating=True, width=221)
 
 def pdf_to_document(uploaded_file):
   temp_dir = tempfile.TemporaryDirectory()
