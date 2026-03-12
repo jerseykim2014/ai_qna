@@ -73,8 +73,7 @@ uploaded_file = st.file_uploader(
 )
 st.write("---")
 
-#Buy me a coffee
-button(username="jerseykim", floating=True, width=221)
+
 
 def pdf_to_document(uploaded_file):
   temp_dir = tempfile.TemporaryDirectory()
@@ -88,6 +87,7 @@ def pdf_to_document(uploaded_file):
 # loader = PyPDFLoader("luck.pdf")
 # pages = loader.load_and_split()
 
+#User Input
 st.header("PDF에게 질문해 보세요!!")
 question = st.text_input(
   "질문을 입력하세요",
@@ -130,6 +130,16 @@ if ask_clicked:
     #Chroma DB
     db = Chroma.from_documents(texts, embeddings_model)
 
+    #generate a handler dealing with streaming
+    class StreamHandler(BaseCallbackHandler):
+      def __init__(self, container, initial_text=""):
+          self.container = container
+          self.text = initial_text
+
+      def on_llm_new_token(self, token: str, **kwargs) -> None:
+          self.text += token
+          self.container.markdown(self.text)
+
     #Retriever
     # question = "아내가 먹고 싶어하는 음식은 무엇이야?"
     llm = ChatOpenAI(temperature=0, openai_api_key=openai_key)
@@ -137,10 +147,14 @@ if ask_clicked:
       retriever=db.as_retriever(), llm=llm
     )
     #Prompt Template
-    # prompt = hub.pull("rlm/rag-prompt")
+    prompt = hub.pull("rlm/rag-prompt")
+
     client = Client()
     prompt = client.pull_prompt("rlm/rag-prompt")
     #Generate
+    chat_box = st.empty()
+    stream_handler = StreamHandler(chat_box)
+
     def format_docs(docs):
       return "\n\n".join(doc.page_content for doc in docs)
     rag_chain = (
@@ -154,4 +168,6 @@ if ask_clicked:
 
     #Question
     result = rag_chain.invoke(question)
-    st.write(result)
+
+st.write("---")   #Buy me a coffee
+button(username="jerseykim", floating=True, width=221)
