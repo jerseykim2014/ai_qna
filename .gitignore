@@ -72,3 +72,6 @@ temp/
 
 # Yarn Integrity file
 .yarn-integrity
+
+# pdf
+*.pdf
