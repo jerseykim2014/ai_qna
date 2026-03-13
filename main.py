@@ -4,10 +4,10 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
 from langchain_classic.retrievers.multi_query import MultiQueryRetriever
 from langchain_openai import ChatOpenAI
-# from langchain import hub
-from langsmith import Client
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from langchain_core.callbacks import BaseCallbackHandler
+from langsmith import Client
 import streamlit as st
 import tempfile
 import os
@@ -28,8 +28,8 @@ def looks_like_openai_key(key: str) -> bool:
 
 def validate_openai_key_live(key: str):
   try:
-    client = OpenAI(api_key=key, timeout=8.0)
-    client.models.list()
+    openai_client = OpenAI(api_key=key, timeout=8.0)
+    openai_client.models.list()
     return True, ""
   except AuthenticationError:
     return False, "Invalid OpenAI API key (authentication failed)."
@@ -87,6 +87,16 @@ def pdf_to_document(uploaded_file):
 # loader = PyPDFLoader("luck.pdf")
 # pages = loader.load_and_split()
 
+#generate a handler dealing with streaming
+class StreamHandler(BaseCallbackHandler):
+  def __init__(self, container, initial_text=""):
+      self.container = container
+      self.text = initial_text
+
+  def on_llm_new_token(self, token: str, **kwargs) -> None:
+      self.text += token
+      self.container.markdown(self.text)
+
 #User Input
 st.header("PDF에게 질문해 보세요!!")
 question = st.text_input(
@@ -130,15 +140,7 @@ if ask_clicked:
     #Chroma DB
     db = Chroma.from_documents(texts, embeddings_model)
 
-    #generate a handler dealing with streaming
-    class StreamHandler(BaseCallbackHandler):
-      def __init__(self, container, initial_text=""):
-          self.container = container
-          self.text = initial_text
 
-      def on_llm_new_token(self, token: str, **kwargs) -> None:
-          self.text += token
-          self.container.markdown(self.text)
 
     #Retriever
     # question = "아내가 먹고 싶어하는 음식은 무엇이야?"
@@ -147,13 +149,13 @@ if ask_clicked:
       retriever=db.as_retriever(), llm=llm
     )
     #Prompt Template
-    prompt = hub.pull("rlm/rag-prompt")
+    langsmith_client = Client()
+    prompt = langsmith_client.pull_prompt("rlm/rag-prompt")
 
-    client = Client()
-    prompt = client.pull_prompt("rlm/rag-prompt")
     #Generate
     chat_box = st.empty()
     stream_handler = StreamHandler(chat_box)
+    generate_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=openai_key, streaming=True, callbacks=[stream_handler])
 
     def format_docs(docs):
       return "\n\n".join(doc.page_content for doc in docs)
@@ -162,12 +164,13 @@ if ask_clicked:
         "question": RunnablePassthrough(),
         "context": retriever_from_llm | format_docs}
         | prompt
-        | llm
+        | generate_llm
         | StrOutputParser()
     )
 
     #Question
     result = rag_chain.invoke(question)
+    # st.write(result)
 
 st.write("---")   #Buy me a coffee
 button(username="jerseykim", floating=True, width=221)
